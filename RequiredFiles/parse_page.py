@@ -25,6 +25,7 @@ class Spider:
         self.session = requests.Session()
         self.session.headers = self.headers
         self.url_list = []
+        self.url_json = {}
         self.logger = Logger(r'RequiredFiles\game_downloader.log')
         # self.logger = Logger(r'测试.log')
         self.n = 0
@@ -62,9 +63,9 @@ class Spider:
             finally:
                 i += 1
         self.logger.info('{}游戏初始界面下载完成'.format(self.year))
+        self.url_json = {'{}'.format(j): self.url_list[j] for j in range(len(self.url_list))}
         with open(r'RequiredFiles\year_{}_game_urls.json'.format(self.year), 'w') as file:
-            json.dump({j: self.url_list[j] for j in range(
-                len(self.url_list))}, file, indent=4)
+            json.dump(self.url_json, file, indent=4)
 
     def parse_detail_page(self, url, num=0):
         """
@@ -129,7 +130,7 @@ class Spider:
                     size = selector.xpath('//div[@class="persize"]/span/text()')[0]
                     temp = size.split()
                     size = temp[0] + rus2chiDict[temp[1]]
-                    infor['大小'] = size
+                    infor['大小'] = unit_conversion(size)
                 except Exception as e:
                     self.logger.error('未找到{}中的大小信息，错误为{}'.format(name, e))
 
@@ -145,14 +146,14 @@ class Spider:
                             size = xpath.xpath('.//div[@class="packagedownld"]/span/text()')[0]
                             size_temp = size.split()
                             size = size_temp[0] + rus2chiDict[size_temp[1]]
-                            temp['大小'] = size
+                            temp['大小'] = unit_conversion(size)
                             temp['下载地址'] = xpath.xpath('.//a[@class="downld"]/@href')[0]
                             other_urls.append(temp)
                     infor['其他下载版本'] = other_urls
                 except Exception as e:
                     print(e)
-            except:
-                self.logger.error('游戏{}网页出错，重新进行分析'.format(url))
+            except Exception as e:
+                self.logger.error('游戏{}网页出错，错误代码为，请自行查看'.format(url,e))
                 self.parse_detail_page(url)
 
             infor['发售年份'] = self.year
@@ -169,12 +170,12 @@ class Spider:
             time.sleep(random.randint(1, 2))
             self.parse_detail_page(url)
 
-    def start(self):
+    def start(self,url_downloaded_list=[{}]):
         print('开始下载')
         try:
             with open(r'RequiredFiles\year_{}_game_urls.json'.format(self.year), 'r') as file:
-                self.url_list = json.load(file)
-                if not self.url_list:
+                self.url_json = json.load(file)
+                if not self.url_json:
                     raise FileNotFoundError
             self.logger.info('找到原本的json信息，开始续爬')
         except FileNotFoundError:
@@ -190,10 +191,33 @@ class Spider:
             print(e)
             num = -1
         finally:
-            self.n = len(self.url_list)
-            for i in range(num+1,len(self.url_list)):
-                time.sleep(random.randint(2,3))
-                yield self.parse_detail_page(self.url_list['{}'.format(i)],i)
+            self.n = len(self.url_json)
+            for i in range(num+1,len(self.url_json)):
+                flag = 1
+                for url_downloaded in url_downloaded_list:
+                    if url_downloaded['url'] == self.url_json['{}'.format(i)] and url_downloaded['下载地址']:
+                        flag = 0
+                        break
+                if flag:
+                    time.sleep(random.randint(2, 3))
+                    yield self.parse_detail_page(self.url_json['{}'.format(i)],i)
+                else:
+                    self.logger.info("{}已经下载".format(self.url_json['{}'.format(i)]))
+
+
+def unit_conversion(size):
+    """
+
+    :param size: 字符串类型
+    :return: float类型的单位为GB
+    """
+    size = size.replace(',', '.')
+    size_temp = float(size[:-2])
+    unit = size[-2:]
+    if unit == 'MB':
+        size_temp /= 1024
+    size_temp = round(size_temp, 2)
+    return size_temp
 
 
 if __name__ == '__main__':
